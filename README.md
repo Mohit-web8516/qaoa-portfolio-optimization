@@ -1,98 +1,104 @@
-# QAOA-Based Portfolio Optimization Using Qiskit
+# QAOA Portfolio Optimization: Local Run (Track 2, Beginner)
 
-A quantum optimization project exploring the Quantum Approximate Optimization Algorithm (QAOA) for selecting a fixed-size portfolio of synthetic stocks.
+Solving the Track 2 portfolio-selection instance with QAOA on a local Qiskit simulator, and checking the result against brute force. The problem statement is in [`qiskit-fall-fest-2026-IIITD/hackathon/track-2-quantum-optimization/README.md`](qiskit-fall-fest-2026-IIITD/hackathon/track-2-quantum-optimization/README.md).
 
-## Project Overview
+## Notebooks
 
-This project formulates a portfolio selection problem as a binary optimization problem and investigates how QAOA performs under different circuit depths and penalty strengths.
+| Notebook | What it does |
+|---|---|
+| [`scripts/optim_bruteforce.ipynb`](scripts/optim_bruteforce.ipynb) | Classical brute force over all valid portfolios |
+| [`scripts/optim_beginner.ipynb`](scripts/optim_beginner.ipynb) | QUBO → Pauli operator → QAOA on a local simulator, then a check against brute force |
 
-**Problem setup**
-- Number of assets: 6
-- Required portfolio size: 3
-- Risk parameter: \(q = 0.5\)
-- Random seed: 2026
+## Local instance
 
-## Objective Function
-
-The objective is to minimize:
-
-\[
-C(x)=q\,x^T\Sigma x-\mu^Tx+
-\lambda\left(\sum_{i=1}^{n}x_i-K\right)^2
-\]
-
-Where:
-- \(x_i \in \{0,1\}\) indicates whether an asset is selected.
-- \(\mu\) represents synthetic expected returns.
-- \(\Sigma\) is a positive-semidefinite covariance-like matrix.
-- \(K=3\) is the required number of selected assets.
-- \(\lambda\) penalizes portfolios that violate the cardinality constraint.
-
-## Project Workflow
-
-1. **Classical benchmark:** Enumerate all 64 possible portfolios and identify the best feasible portfolio.
-2. **Hamiltonian construction:** Convert the binary objective into a Pauli-based cost Hamiltonian.
-3. **QAOA simulation:** Run QAOA using Qiskit and a local simulator.
-4. **Depth experiments:** Compare circuit depths \(p=1,2,3,4\).
-5. **Penalty experiments:** Evaluate penalty strengths from \(\lambda=0.05\) to \(\lambda=5.0\).
-
-## Key Experimental Results
-
-- Best feasible bitstring: `011001`
-- Best feasible objective value: approximately `-0.50301469`
-- Best observed approximation ratio in the depth experiment: `0.980765` at \(p=2\).
-- Best observed feasibility fraction in the penalty sweep: `97.1%` at \(\lambda=1.0\).
-- Maximum absolute difference in the Hamiltonian validation: approximately \(2.998 \times 10^{-15}\), across all 64 bitstrings.
-
-These results are specific to the chosen synthetic instance and simulation settings.
-
-## Repository Structure
-
-```text
-qaoa-portfolio-optimization/
-├── 01_classical_benchmark.ipynb
-├── 02_portfolio_hamiltonian.ipynb
-├── 03_portfolio_qaoa.ipynb
-├── 04_depth_experiments.ipynb
-├── 05_penalty_experiments.ipynb
-├── QAOA_Portfolio_Optimization_Final_8_Slides.pdf
-├── README.md
-└── .gitignore
+```python
+rng = np.random.default_rng(2026)
+n, K, q = 6, 3, 0.5               # 6 stocks, pick exactly 3, risk aversion 0.5
+mu = rng.uniform(0.05, 0.25, n)   # expected returns
+A = rng.normal(0, 0.1, (n, n))
+sigma = A @ A.T                   # covariance
+lam = 0.5                         # budget-penalty strength (chosen)
 ```
 
-## Requirements
+## Environment
 
-- Python 3.12
-- Qiskit
-- NumPy
-- SciPy
-- Matplotlib
-- Jupyter Notebook
-- Qiskit Aer, if used by the selected simulator configuration
+- Local conda environment `qiskit_env` (Python 3.11)
+- `qiskit`, `qiskit-optimization`, `numpy`, `scipy`, `matplotlib`
+- Everything ran **locally** on Qiskit's exact statevector primitives (`StatevectorEstimator`, `StatevectorSampler`). The notebook also contains IBM Quantum setup cells, but no hardware was used for these results.
 
-Install the dependencies in your Python environment as needed. For reproducibility, record the exact package versions used to run the notebooks.
+## 1. Brute force (`optim_bruteforce.ipynb`)
 
-## Running the Project
+- Listed all $\binom{6}{3} = 20$ valid portfolios with `itertools.combinations` and checked that each buys exactly 3 stocks.
+- Evaluated $C(x) = q\,x^\top\Sigma x - \mu^\top x + \lambda(\sum x_i - K)^2$ for each one and took the minimum.
 
-Run the notebooks in numerical order, from `01_classical_benchmark.ipynb` through `05_penalty_experiments.ipynb`.
+**Result:** $x = [0, 1, 1, 0, 0, 1]$, i.e. stocks **{1, 2, 5}**, with **C = −0.50301** (expected return 0.52954).
 
-Restart the kernel and execute each notebook from top to bottom to reproduce the experiments.
+The same brute-force step is repeated at the top of `optim_beginner.ipynb` (`best_x`), so the QAOA result can be checked in the same notebook.
 
-The experiments use local simulation and do not require an IBM Quantum API key.
+## 2. Building the Pauli operator (`optim_beginner.ipynb`)
 
-## Limitations
+The cost was expanded into QUBO form by hand, using $x_i^2 = x_i$:
 
-- The problem contains only six synthetic assets.
-- Results depend on optimizer initialization, iteration limits, circuit depth, and sampling.
-- Higher approximation ratios do not guarantee that the optimal bitstring will be sampled frequently.
-- These experiments do not establish a quantum advantage over classical optimization.
+| Term | Coefficient |
+|---|---|
+| Linear, $x_i$ | $q\,\Sigma_{ii} - \mu_i + \lambda(1 - 2K)$ |
+| Quadratic, $x_i x_j$ ($i<j$) | $2q\,\Sigma_{ij} + 2\lambda$ |
+| Constant | $\lambda K^2 = 4.5$ |
 
-## Conclusion
+These coefficients were loaded into a `qiskit_optimization.QuadraticProgram` as linear and quadratic dictionaries. `mod.to_ising()` then converted the program to a qubit operator:
 
-This project demonstrates an end-to-end workflow for modeling a constrained portfolio problem, constructing its cost Hamiltonian, simulating QAOA, and evaluating the effects of circuit depth and penalty strength.
+- `pauliop`: a `SparsePauliOp` with **21 terms**, 6 single-qubit `Z` terms and 15 two-qubit `ZZ` terms
+  - `Z` coefficients ≈ 0.036 – 0.100
+  - `ZZ` coefficients ≈ 0.247 – 0.260
+- `offset` = **0.370067**, added back to every energy so that ⟨H⟩ + offset = ⟨C⟩
 
-## Acknowledgements
+With λ = 0.5, the penalty contributes 2λ = 1.0 to every quadratic coefficient. That is much larger than the risk part (2qΣᵢⱼ ≈ ±0.04), so the energy landscape is dominated by the "pick exactly 3" rule.
 
-Prepared as a project for Qiskit Fall Fest x IIIT Delhi, Track 2: Quantum Optimization.
+## 3. QAOA parameters used
 
-Educational and research use.
+| Setting | Value |
+|---|---|
+| Circuit | `QAOAAnsatz(cost_operator=pauliop, reps=2)`, so depth p = 2 and 4 angles |
+| Transpilation | Once, before optimizing: `generate_preset_pass_manager(optimization_level=1, basis_gates=["rz", "sx", "x", "cx"])` |
+| Energy evaluation | `StatevectorEstimator` (exact, noiseless) |
+| Optimizer | SciPy `minimize`, method COBYLA, `maxiter=300` |
+| Starts | 8 starts, initial angles drawn uniformly from [0, π] with `np.random.default_rng(42)`; kept the lowest-energy run |
+| Sampling | `StatevectorSampler(seed=42)`, 4096 shots |
+| Answer selection | Kept shots that buy exactly K = 3 stocks, reversed each Qiskit key (little-endian), and picked the one with the **lowest cost** |
+
+**Optimizer runs (⟨C⟩ per start):** 0.1367, 0.0131, **−0.3426**, −0.2020, −0.2164, 0.2757, −0.2573, −0.3115
+
+**Best angles:** β = (1.3269, 1.4573), γ = (0.7703, 2.7702). This is `QAOAAnsatz`'s parameter order: β values first, then γ.
+
+## 4. Results and comparison with brute force
+
+| | Brute force | QAOA (p = 2, local) |
+|---|---|---|
+| Best portfolio | [0 1 1 0 0 1], stocks {1, 2, 5} | [0 1 1 0 0 1], stocks {1, 2, 5} |
+| Cost C | −0.5030 | −0.5030 |
+| Matches | | ✅ `matches brute force: True` |
+
+Sample quality, compared with what random guessing over all 64 bitstrings would give:
+
+| Metric | QAOA | Random guessing |
+|---|---|---|
+| Valid fraction (exactly 3 stocks) | **96.0%** | 31.3% (20/64) |
+| P(optimum) | **4.9%** (199 / 4096 shots) | 1.6% (1/64) |
+| Expected cost ⟨C⟩ | −0.3426 | |
+| Approximation ratio r* | ≈ 0.968 | |
+
+\* r = (C_max − ⟨C⟩) / (C_max − C_min). It was calculated by hand from the numbers above, with C_max = 4.5 ("buy nothing", penalty 9λ) and C_min = −0.5030. It is not an output of the notebook.
+
+QAOA learned the budget rule well: 96% of shots are valid. Among the valid portfolios, however, the counts are almost flat (158–216 per portfolio). The optimum is identified by **evaluating the cost of each sampled valid portfolio**, not by how often it appears.
+
+## Notes from earlier attempts
+
+- **Single random start:** the first run used one unseeded starting point. COBYLA got stuck in a poor local minimum: only 22.6% of shots were valid (worse than random), and the most frequent valid bitstring was {0, 1, 2}, which is rank 10 of 20. Running 8 seeded starts fixed this.
+- **Choosing by frequency:** picking the *most frequent* valid bitstring returned the wrong portfolio even when the optimum had been sampled, because counts differ only by shot noise. Choosing by lowest cost fixed this.
+- **No transpilation:** without transpiling first, every optimizer step printed SciPy `SparseEfficiencyWarning`s. Transpiling once before the loop removed them.
+
+## Next steps
+
+- Sweep depth p = 1 … 4 and plot r
+- Sweep λ and plot the valid fraction and P(optimum)
+- Run the best circuit on IBM hardware and compare it with the simulator
