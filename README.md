@@ -1,104 +1,241 @@
-# QAOA Portfolio Optimization: Local Run (Track 2, Beginner)
+# QAOA-Based Portfolio Optimization Using Qiskit ⚛️📈
 
-Solving the Track 2 portfolio-selection instance with QAOA on a local Qiskit simulator, and checking the result against brute force. The problem statement is in [`qiskit-fall-fest-2026-IIITD/hackathon/track-2-quantum-optimization/README.md`](qiskit-fall-fest-2026-IIITD/hackathon/track-2-quantum-optimization/README.md).
+An end-to-end quantum optimization project exploring the **Quantum Approximate Optimization Algorithm (QAOA)** for fixed-size portfolio selection using synthetic stock data.
 
-## Notebooks
+The project investigates how a combinatorial portfolio optimization problem can be formulated mathematically, translated into a Hamiltonian, and explored using QAOA. It also includes classical benchmarking and experiments examining circuit depth and penalty parameters.
 
-| Notebook | What it does |
-|---|---|
-| [`scripts/optim_bruteforce.ipynb`](scripts/optim_bruteforce.ipynb) | Classical brute force over all valid portfolios |
-| [`scripts/optim_beginner.ipynb`](scripts/optim_beginner.ipynb) | QUBO → Pauli operator → QAOA on a local simulator, then a check against brute force |
+## 🎯 Project Overview
 
-## Local instance
+Portfolio optimization involves selecting assets while balancing potential returns against risk. When the portfolio must contain a fixed number of assets, the selection problem becomes a discrete optimization task.
 
-```python
-rng = np.random.default_rng(2026)
-n, K, q = 6, 3, 0.5               # 6 stocks, pick exactly 3, risk aversion 0.5
-mu = rng.uniform(0.05, 0.25, n)   # expected returns
-A = rng.normal(0, 0.1, (n, n))
-sigma = A @ A.T                   # covariance
-lam = 0.5                         # budget-penalty strength (chosen)
+This project explores a QAOA-based approach to selecting a fixed-size portfolio from a synthetic stock universe.
+
+### Key objectives
+
+- Formulate portfolio selection as a binary optimization problem.
+- Construct a portfolio cost function that balances expected returns and risk.
+- Encode the optimization objective into a Hamiltonian.
+- Apply QAOA to generate candidate portfolios.
+- Compare quantum optimization results with a classical benchmark.
+- Investigate the effects of circuit depth and penalty parameters.
+- Understand the practical limitations of quantum optimization.
+
+## 🧠 Mathematical Formulation
+
+Let \(n\) be the number of available assets, and let \(x_i\) represent whether asset \(i\) is selected:
+
+\[
+x_i \in \{0,1\}
+\]
+
+where \(x_i=1\) means the asset is selected and \(x_i=0\) means it is not selected.
+
+A common mean–variance-style objective for fixed-size portfolio selection is:
+
+\[
+\min_x \left(\lambda x^\top\Sigma x-\mu^\top x\right)
+\]
+
+subject to:
+
+\[
+\sum_{i=1}^{n}x_i=k
+\]
+
+where:
+
+- \(x\): binary asset-selection vector.
+- \(\mu\): expected-return vector.
+- \(\Sigma\): covariance matrix of asset returns.
+- \(\lambda\): risk–return trade-off parameter.
+- \(k\): required number of selected assets.
+
+The precise objective, parameter scaling, and constraint handling should match the implementation in the project notebooks.
+
+### QUBO formulation
+
+The binary optimization problem can be expressed as a Quadratic Unconstrained Binary Optimization (QUBO) problem.
+
+A fixed-size constraint can be incorporated using a penalty term:
+
+\[
+P\left(\sum_{i=1}^{n}x_i-k\right)^2
+\]
+
+where \(P\) controls the penalty applied to portfolios that violate the selection constraint.
+
+The resulting binary objective can be mapped to a Hamiltonian suitable for quantum optimization.
+
+## ⚛️ How QAOA Works
+
+The Quantum Approximate Optimization Algorithm combines a parameterized quantum circuit with a classical optimization procedure.
+
+The workflow is:
+
+1. **Prepare the problem:** Construct the portfolio objective and encode asset-selection decisions as binary variables.
+2. **Build the Hamiltonian:** Translate the objective and applicable constraints into a form suitable for quantum computation.
+3. **Initialize the circuit:** Prepare a quantum state representing candidate solutions.
+4. **Apply QAOA layers:** Alternate cost and mixer operations using adjustable circuit parameters.
+5. **Measure candidate solutions:** Obtain bitstrings representing candidate portfolios.
+6. **Evaluate the candidates:** Calculate their objective values and check portfolio constraints.
+7. **Optimize the parameters:** Use a classical optimizer to improve the QAOA parameters based on the measured results.
+
+The aim is to obtain high-quality candidate portfolios. QAOA does not guarantee that every run will find the global optimum.
+
+## 📂 Project Structure
+
+The repository is organized around five experiment notebooks and a project report or supporting artifact.
+
+```text
+qiskit-track2/
+│
+├── README.md
+├── .gitignore
+│
+├── 01_classical_benchmarking.ipynb
+├── 02_portfolio_hamiltonian.ipynb
+├── 03_portfolio_qaoa.ipynb
+├── 04_depth_experiments.ipynb
+├── 05_penalty_experiments.ipynb
+│
+└── QAOA_Portfolio_Optimization...
 ```
 
-## Environment
+The final filename above is abbreviated to match the VS Code screenshot; replace it with the actual filename if you document it separately.
 
-- Local conda environment `qiskit_env` (Python 3.11)
-- `qiskit`, `qiskit-optimization`, `numpy`, `scipy`, `matplotlib`
-- Everything ran **locally** on Qiskit's exact statevector primitives (`StatevectorEstimator`, `StatevectorSampler`). The notebook also contains IBM Quantum setup cells, but no hardware was used for these results.
+### Notebook guide
 
-## 1. Brute force (`optim_bruteforce.ipynb`)
-
-- Listed all $\binom{6}{3} = 20$ valid portfolios with `itertools.combinations` and checked that each buys exactly 3 stocks.
-- Evaluated $C(x) = q\,x^\top\Sigma x - \mu^\top x + \lambda(\sum x_i - K)^2$ for each one and took the minimum.
-
-**Result:** $x = [0, 1, 1, 0, 0, 1]$, i.e. stocks **{1, 2, 5}**, with **C = −0.50301** (expected return 0.52954).
-
-The same brute-force step is repeated at the top of `optim_beginner.ipynb` (`best_x`), so the QAOA result can be checked in the same notebook.
-
-## 2. Building the Pauli operator (`optim_beginner.ipynb`)
-
-The cost was expanded into QUBO form by hand, using $x_i^2 = x_i$:
-
-| Term | Coefficient |
+| Notebook | Purpose |
 |---|---|
-| Linear, $x_i$ | $q\,\Sigma_{ii} - \mu_i + \lambda(1 - 2K)$ |
-| Quadratic, $x_i x_j$ ($i<j$) | $2q\,\Sigma_{ij} + 2\lambda$ |
-| Constant | $\lambda K^2 = 4.5$ |
+| `01_classical_benchmarking.ipynb` | Establish a classical reference for evaluating portfolio-selection solutions. |
+| `02_portfolio_hamiltonian.ipynb` | Explore the portfolio objective and its Hamiltonian representation. |
+| `03_portfolio_qaoa.ipynb` | Implement the main QAOA portfolio optimization workflow. |
+| `04_depth_experiments.ipynb` | Investigate how QAOA circuit depth affects optimization behaviour. |
+| `05_penalty_experiments.ipynb` | Explore the effect of penalty parameters on constraint satisfaction and solution quality. |
 
-These coefficients were loaded into a `qiskit_optimization.QuadraticProgram` as linear and quadratic dictionaries. `mod.to_ising()` then converted the program to a qubit operator:
+The exact contents and outcomes of each notebook should be confirmed from the executed experiments.
 
-- `pauliop`: a `SparsePauliOp` with **21 terms**, 6 single-qubit `Z` terms and 15 two-qubit `ZZ` terms
-  - `Z` coefficients ≈ 0.036 – 0.100
-  - `ZZ` coefficients ≈ 0.247 – 0.260
-- `offset` = **0.370067**, added back to every energy so that ⟨H⟩ + offset = ⟨C⟩
+## 🛠️ Technology Stack
 
-With λ = 0.5, the penalty contributes 2λ = 1.0 to every quadratic coefficient. That is much larger than the risk part (2qΣᵢⱼ ≈ ±0.04), so the energy landscape is dominated by the "pick exactly 3" rule.
+- **Python** — implementation and numerical computation
+- **Qiskit** — quantum circuit construction and execution
+- **QAOA** — approximate combinatorial optimization
+- **NumPy** — numerical operations and array processing
+- **Jupyter Notebook** — experiments, analysis, and visualization
 
-## 3. QAOA parameters used
+Additional dependencies should be documented based on the imports used by the notebooks.
 
-| Setting | Value |
-|---|---|
-| Circuit | `QAOAAnsatz(cost_operator=pauliop, reps=2)`, so depth p = 2 and 4 angles |
-| Transpilation | Once, before optimizing: `generate_preset_pass_manager(optimization_level=1, basis_gates=["rz", "sx", "x", "cx"])` |
-| Energy evaluation | `StatevectorEstimator` (exact, noiseless) |
-| Optimizer | SciPy `minimize`, method COBYLA, `maxiter=300` |
-| Starts | 8 starts, initial angles drawn uniformly from [0, π] with `np.random.default_rng(42)`; kept the lowest-energy run |
-| Sampling | `StatevectorSampler(seed=42)`, 4096 shots |
-| Answer selection | Kept shots that buy exactly K = 3 stocks, reversed each Qiskit key (little-endian), and picked the one with the **lowest cost** |
+## 🚀 Getting Started
 
-**Optimizer runs (⟨C⟩ per start):** 0.1367, 0.0131, **−0.3426**, −0.2020, −0.2164, 0.2757, −0.2573, −0.3115
+### Prerequisites
 
-**Best angles:** β = (1.3269, 1.4573), γ = (0.7703, 2.7702). This is `QAOAAnsatz`'s parameter order: β values first, then γ.
+- Python installed on your system
+- pip
+- Git
+- A compatible version of Qiskit and the libraries used in the notebooks
 
-## 4. Results and comparison with brute force
+### 1. Clone the repository
 
-| | Brute force | QAOA (p = 2, local) |
-|---|---|---|
-| Best portfolio | [0 1 1 0 0 1], stocks {1, 2, 5} | [0 1 1 0 0 1], stocks {1, 2, 5} |
-| Cost C | −0.5030 | −0.5030 |
-| Matches | | ✅ `matches brute force: True` |
+```bash
+git clone https://github.com/Mohit-web8516/qaoa-portfolio-optimization.git
+cd qaoa-portfolio-optimization
+```
 
-Sample quality, compared with what random guessing over all 64 bitstrings would give:
+### 2. Create a virtual environment
 
-| Metric | QAOA | Random guessing |
-|---|---|---|
-| Valid fraction (exactly 3 stocks) | **96.0%** | 31.3% (20/64) |
-| P(optimum) | **4.9%** (199 / 4096 shots) | 1.6% (1/64) |
-| Expected cost ⟨C⟩ | −0.3426 | |
-| Approximation ratio r* | ≈ 0.968 | |
+```bash
+python -m venv .venv
+```
 
-\* r = (C_max − ⟨C⟩) / (C_max − C_min). It was calculated by hand from the numbers above, with C_max = 4.5 ("buy nothing", penalty 9λ) and C_min = −0.5030. It is not an output of the notebook.
+Activate it on Windows PowerShell:
 
-QAOA learned the budget rule well: 96% of shots are valid. Among the valid portfolios, however, the counts are almost flat (158–216 per portfolio). The optimum is identified by **evaluating the cost of each sampled valid portfolio**, not by how often it appears.
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
 
-## Notes from earlier attempts
+### 3. Install dependencies
 
-- **Single random start:** the first run used one unseeded starting point. COBYLA got stuck in a poor local minimum: only 22.6% of shots were valid (worse than random), and the most frequent valid bitstring was {0, 1, 2}, which is rank 10 of 20. Running 8 seeded starts fixed this.
-- **Choosing by frequency:** picking the *most frequent* valid bitstring returned the wrong portfolio even when the optimum had been sampled, because counts differ only by shot noise. Choosing by lowest cost fixed this.
-- **No transpilation:** without transpiling first, every optimizer step printed SciPy `SparseEfficiencyWarning`s. Transpiling once before the loop removed them.
+If a `requirements.txt` file is available, install the recorded dependencies:
 
-## Next steps
+```bash
+pip install -r requirements.txt
+```
 
-- Sweep depth p = 1 … 4 and plot r
-- Sweep λ and plot the valid fraction and P(optimum)
-- Run the best circuit on IBM hardware and compare it with the simulator
+Otherwise, install the packages required by the notebooks. For example:
+
+```bash
+python -m pip install qiskit numpy jupyter matplotlib
+```
+
+Use the versions compatible with the actual project code. Do not assume this example command captures every dependency.
+
+### 4. Open the notebooks
+
+Start Jupyter:
+
+```bash
+jupyter notebook
+```
+
+Alternatively, open the repository in VS Code and select the Python environment containing the project dependencies.
+
+### 5. Execute the experiments
+
+Run the notebooks in numerical order, beginning with classical benchmarking and proceeding through Hamiltonian construction, QAOA implementation, circuit-depth experiments, and penalty experiments.
+
+Execute cells in order so that variables and intermediate results are defined before they are used.
+
+## 📊 Evaluation and Experiments
+
+The repository includes notebooks for examining several important aspects of portfolio optimization.
+
+### Classical benchmarking
+
+A classical reference provides a basis for evaluating the quality of candidate portfolios produced by QAOA.
+
+### Hamiltonian construction
+
+The portfolio objective is translated into a quantum-optimization representation, connecting the mathematical model with the circuit implementation.
+
+### QAOA optimization
+
+The main experiment investigates candidate portfolios generated using a parameterized quantum circuit and a classical optimization loop.
+
+### Circuit-depth experiments
+
+Changing QAOA depth changes the number of alternating cost and mixer layers. Experiments can examine whether additional layers improve candidate quality and how they affect circuit complexity.
+
+### Penalty experiments
+
+Penalty strength influences how strongly invalid portfolio selections are discouraged. Experiments can examine the trade-off between constraint satisfaction and the quality of the underlying objective.
+
+### Recommended evaluation metrics
+
+- Best objective value obtained.
+- Whether the fixed-size portfolio constraint is satisfied.
+- Quality relative to a classical reference.
+- Distribution of measured candidate bitstrings.
+- Effect of QAOA depth on solution quality.
+- Sensitivity to penalty strength and optimizer settings.
+
+**Experimental results:** Add numerical results, plots, and conclusions after verifying the outputs produced by the notebooks. No performance figures or quantum advantage claims are assumed in this README.
+
+## ⚠️ Limitations
+
+- Synthetic stock data does not represent the full complexity of real financial markets.
+- QAOA is a heuristic optimization method and is not guaranteed to return a globally optimal portfolio.
+- Results depend on the objective formulation, constraint penalties, circuit depth, classical optimizer, and measurement sampling.
+- Increasing circuit depth can increase computational cost and sensitivity to noise on quantum hardware.
+- Small portfolio problems can often be solved effectively using classical optimization techniques.
+- Demonstrating the practical usefulness of QAOA requires comparison against suitable classical baselines.
+
+## 🔮 Potential Future Improvements
+
+- Add a reproducible classical-versus-QAOA comparison.
+- Record the best objective value and constraint-satisfaction rate across multiple runs.
+- Compare different QAOA depths and classical optimizers.
+- Investigate alternative penalty strengths systematically.
+- Add visualizations of candidate portfolios and measured bitstring distributions.
+- Explore larger problem instances and assess how resource requirements scale.
+
+
